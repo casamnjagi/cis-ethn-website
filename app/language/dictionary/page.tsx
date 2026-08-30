@@ -2,72 +2,163 @@
 
 import { useMemo, useState } from "react";
 
-type DictionaryEntry = {
-  kiembu: string;
-  english: string;
-  category: string;
-  example: string;
-};
+import {
+  type KiembuDictionaryEntry,
+} from "../../data/kiembuData";
 
-const dictionaryEntries: DictionaryEntry[] = [
-  {
-    kiembu: "Example 01",
-    english: "Example meaning",
-    category: "Language",
-    example:
-      "This is a temporary demonstration record. It will be replaced with an approved project lexical entry.",
-  },
-  {
-    kiembu: "Example 02",
-    english: "Another example",
-    category: "Culture",
-    example:
-      "This temporary record demonstrates how a dictionary entry will appear.",
-  },
-  {
-    kiembu: "Example 03",
-    english: "Sample word",
-    category: "Community",
-    example:
-      "The final website will use validated lexical information from the project dataset.",
-  },
-];
+import { kiembuDocumentDictionary } from "../../data/kiembuDocumentDictionary";
 
-const categories = [
-  "All",
-  "Language",
-  "Culture",
-  "Community",
-];
+/* =========================================================
+   TEXT NORMALIZATION
+========================================================= */
+
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[.,!?;:"“”‘’()[\]{}]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+/* =========================================================
+   COMBINE AND CLEAN DICTIONARY
+========================================================= */
+
+/*
+ * The public dictionary uses the project's
+ * kiembuDocumentDictionary as its main lexical resource.
+ *
+ * Exact duplicate Kiembu-English pairs are removed.
+ */
+
+const dictionaryEntries: KiembuDictionaryEntry[] = Array.from(
+  new Map(
+    kiembuDocumentDictionary.map((entry) => [
+      `${normalizeText(entry.kiembu)}|||${normalizeText(
+        entry.english
+      )}`,
+      entry,
+    ])
+  ).values()
+);
+
+/* =========================================================
+   GROUP ENTRIES
+========================================================= */
+
+/*
+ * Some Kiembu words may have more than one English meaning.
+ *
+ * Some English words may also have more than one Kiembu
+ * equivalent.
+ *
+ * These helper functions allow the dictionary page to
+ * display all available meanings without deleting valid
+ * variants.
+ */
+
+function getEnglishMeanings(
+  kiembu: string
+): string[] {
+  return Array.from(
+    new Set(
+      dictionaryEntries
+        .filter(
+          (entry) =>
+            normalizeText(entry.kiembu) ===
+            normalizeText(kiembu)
+        )
+        .map((entry) => entry.english.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function getKiembuEquivalents(
+  english: string
+): string[] {
+  return Array.from(
+    new Set(
+      dictionaryEntries
+        .filter(
+          (entry) =>
+            normalizeText(entry.english) ===
+            normalizeText(english)
+        )
+        .map((entry) => entry.kiembu.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+/* =========================================================
+   DICTIONARY PAGE
+========================================================= */
 
 export default function DictionaryPage() {
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("All");
+
+  /* =======================================================
+     FILTER DICTIONARY
+  ======================================================= */
 
   const filteredEntries = useMemo(() => {
-    const query = search.toLowerCase().trim();
+    const query = normalizeText(search);
 
-    return dictionaryEntries.filter((entry) => {
-      const matchesSearch =
-        query === "" ||
-        entry.kiembu.toLowerCase().includes(query) ||
-        entry.english.toLowerCase().includes(query) ||
-        entry.example.toLowerCase().includes(query);
+    if (!query) {
+      return dictionaryEntries;
+    }
 
-      const matchesCategory =
-        category === "All" || entry.category === category;
+    return dictionaryEntries.filter(
+      (entry) =>
+        normalizeText(entry.kiembu).includes(query) ||
+        normalizeText(entry.english).includes(query)
+    );
+  }, [search]);
 
-      return matchesSearch && matchesCategory;
-    });
-  }, [search, category]);
+  /* =======================================================
+     UNIQUE WORD COUNTS
+  ======================================================= */
+
+  const uniqueKiembuWords = useMemo(() => {
+    return new Set(
+      dictionaryEntries.map((entry) =>
+        normalizeText(entry.kiembu)
+      )
+    ).size;
+  }, []);
+
+  const uniqueEnglishWords = useMemo(() => {
+    return new Set(
+      dictionaryEntries.map((entry) =>
+        normalizeText(entry.english)
+      )
+    ).size;
+  }, []);
+
+  /* =======================================================
+     CLEAR SEARCH
+  ======================================================= */
+
+  function clearSearch() {
+    setSearch("");
+  }
+
+  /* =======================================================
+     PAGE
+  ======================================================= */
 
   return (
     <main className="min-h-screen bg-[#f7f4ed] text-[#17251d]">
-      {/* =========================================================
+
+      {/* =====================================================
           HERO
-      ========================================================= */}
+      ===================================================== */}
+
       <section className="bg-[#173f2a] text-white">
+
         <div className="mx-auto max-w-7xl px-6 py-20 lg:px-10 lg:py-24">
+
           <a
             href="/language"
             className="text-sm font-semibold text-[#d7a44b] hover:underline"
@@ -76,6 +167,7 @@ export default function DictionaryPage() {
           </a>
 
           <div className="mt-12 max-w-4xl">
+
             <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#d7a44b]">
               Language Resource
             </p>
@@ -85,177 +177,399 @@ export default function DictionaryPage() {
             </h1>
 
             <p className="mt-7 max-w-3xl text-lg leading-8 text-[#d6e2d9]">
-              Search and explore the lexical resources developed through the
-              CIS-ETHN project.
+              Search and explore the documented Kiembu lexical
+              resource developed through the CIS-ETHN project.
             </p>
+
           </div>
+
         </div>
+
       </section>
 
-      {/* =========================================================
-          SEARCH
-      ========================================================= */}
+      {/* =====================================================
+          DICTIONARY STATISTICS
+      ===================================================== */}
+
       <section className="bg-white">
-        <div className="mx-auto max-w-7xl px-6 py-12 lg:px-10">
+
+        <div className="mx-auto max-w-7xl px-6 py-10 lg:px-10">
+
+          <div className="grid gap-5 md:grid-cols-3">
+
+            {/* TOTAL RECORDS */}
+
+            <div className="rounded-3xl bg-[#173f2a] p-7 text-white">
+
+              <div className="text-4xl font-bold">
+                {dictionaryEntries.length.toLocaleString()}
+              </div>
+
+              <div className="mt-2 text-sm text-[#d6e2d9]">
+                Dictionary records
+              </div>
+
+            </div>
+
+            {/* KIEMBU WORDS */}
+
+            <div className="rounded-3xl border border-[#ded7c9] bg-[#faf8f3] p-7">
+
+              <div className="text-4xl font-bold text-[#173f2a]">
+                {uniqueKiembuWords.toLocaleString()}
+              </div>
+
+              <div className="mt-2 text-sm text-[#68736b]">
+                Unique Kiembu terms
+              </div>
+
+            </div>
+
+            {/* ENGLISH TERMS */}
+
+            <div className="rounded-3xl border border-[#ded7c9] bg-[#faf8f3] p-7">
+
+              <div className="text-4xl font-bold text-[#a25b28]">
+                {uniqueEnglishWords.toLocaleString()}
+              </div>
+
+              <div className="mt-2 text-sm text-[#68736b]">
+                Unique English meanings
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </section>
+
+      {/* =====================================================
+          SEARCH
+      ===================================================== */}
+
+      <section className="bg-white">
+
+        <div className="mx-auto max-w-7xl px-6 pb-12 lg:px-10">
+
           <div className="rounded-3xl border border-[#ded7c9] bg-[#faf8f3] p-6 lg:p-8">
-            <div className="grid gap-5 lg:grid-cols-[1fr_220px]">
-              <div>
-                <label
-                  htmlFor="dictionary-search"
-                  className="mb-2 block text-sm font-semibold text-[#173f2a]"
-                >
-                  Search the dictionary
-                </label>
+
+            <label
+              htmlFor="dictionary-search"
+              className="mb-2 block text-sm font-semibold text-[#173f2a]"
+            >
+              Search the dictionary
+            </label>
+
+            <div className="flex flex-col gap-4 md:flex-row">
+
+              <div className="flex-1">
 
                 <input
                   id="dictionary-search"
                   type="text"
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) =>
+                    setSearch(event.target.value)
+                  }
                   placeholder="Search Kiembu or English..."
                   className="w-full rounded-xl border border-[#d5cec0] bg-white px-5 py-4 text-[#17251d] outline-none transition focus:border-[#a25b28] focus:ring-2 focus:ring-[#a25b28]/20"
                 />
+
               </div>
 
-              <div>
-                <label
-                  htmlFor="dictionary-category"
-                  className="mb-2 block text-sm font-semibold text-[#173f2a]"
-                >
-                  Category
-                </label>
+              {search && (
 
-                <select
-                  id="dictionary-category"
-                  value={category}
-                  onChange={(event) => setCategory(event.target.value)}
-                  className="w-full rounded-xl border border-[#d5cec0] bg-white px-5 py-4 text-[#17251d] outline-none focus:border-[#a25b28]"
-                >
-                  {categories.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
-              <p className="text-sm text-[#68736b]">
-                Showing{" "}
-                <strong className="text-[#173f2a]">
-                  {filteredEntries.length}
-                </strong>{" "}
-                result
-                {filteredEntries.length === 1 ? "" : "s"}
-              </p>
-
-              {(search || category !== "All") && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setSearch("");
-                    setCategory("All");
-                  }}
-                  className="text-sm font-semibold text-[#a25b28] hover:underline"
+                  onClick={clearSearch}
+                  className="rounded-xl border border-[#a25b28] px-6 py-4 font-semibold text-[#a25b28] transition hover:bg-[#a25b28] hover:text-white"
                 >
-                  Clear search
+                  Clear Search
                 </button>
+
               )}
+
             </div>
+
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
+
+              <p className="text-sm text-[#68736b]">
+
+                Showing{" "}
+
+                <strong className="text-[#173f2a]">
+                  {filteredEntries.length.toLocaleString()}
+                </strong>{" "}
+
+                result
+                {filteredEntries.length === 1
+                  ? ""
+                  : "s"}
+
+              </p>
+
+              {search && (
+
+                <p className="text-sm text-[#68736b]">
+
+                  Search:
+                  <strong className="ml-1 text-[#173f2a]">
+                    "{search}"
+                  </strong>
+
+                </p>
+
+              )}
+
+            </div>
+
           </div>
+
         </div>
+
       </section>
 
-      {/* =========================================================
+      {/* =====================================================
           RESULTS
-      ========================================================= */}
+      ===================================================== */}
+
       <section className="bg-[#f7f4ed]">
+
         <div className="mx-auto max-w-7xl px-6 py-12 lg:px-10 lg:py-20">
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {filteredEntries.map((entry) => (
-              <article
-                key={entry.kiembu}
-                className="rounded-3xl border border-[#ded7c9] bg-white p-7 shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <span className="rounded-full bg-[#e8e1d3] px-3 py-1 text-xs font-semibold text-[#173f2a]">
-                    {entry.category}
-                  </span>
-                </div>
 
-                <h2 className="mt-7 text-3xl font-bold text-[#173f2a]">
-                  {entry.kiembu}
-                </h2>
+          {filteredEntries.length > 0 ? (
 
-                <div className="mt-2 text-lg font-semibold text-[#a25b28]">
-                  {entry.english}
-                </div>
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
 
-                <div className="mt-6 border-t border-[#eee8dc] pt-5">
-                  <div className="text-xs font-bold uppercase tracking-[0.15em] text-[#7a847d]">
-                    Example / Context
-                  </div>
+              {filteredEntries.map(
+                (entry, index) => {
 
-                  <p className="mt-3 text-sm leading-7 text-[#657068]">
-                    {entry.example}
-                  </p>
-                </div>
-              </article>
-            ))}
-          </div>
+                  const englishMeanings =
+                    getEnglishMeanings(
+                      entry.kiembu
+                    );
 
-          {/* =====================================================
-              NO RESULTS
-          ===================================================== */}
-          {filteredEntries.length === 0 && (
+                  const kiembuEquivalents =
+                    getKiembuEquivalents(
+                      entry.english
+                    );
+
+                  return (
+
+                    <article
+                      key={`${entry.kiembu}-${entry.english}-${index}`}
+                      className="rounded-3xl border border-[#ded7c9] bg-white p-7 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
+                    >
+
+                      {/* RESOURCE LABEL */}
+
+                      <div className="flex items-start justify-between gap-4">
+
+                        <span className="rounded-full bg-[#e8e1d3] px-3 py-1 text-xs font-semibold text-[#173f2a]">
+                          Lexical Entry
+                        </span>
+
+                      </div>
+
+                      {/* KIEMBU */}
+
+                      <h2 className="mt-7 break-words text-3xl font-bold text-[#173f2a]">
+                        {entry.kiembu}
+                      </h2>
+
+                      {/* ENGLISH */}
+
+                      <div className="mt-3">
+
+                        <div className="text-xs font-bold uppercase tracking-[0.15em] text-[#7a847d]">
+                          English
+                        </div>
+
+                        <div className="mt-2 text-lg font-semibold text-[#a25b28]">
+                          {entry.english}
+                        </div>
+
+                      </div>
+
+                      {/* ADDITIONAL MEANINGS */}
+
+                      {englishMeanings.length > 1 && (
+
+                        <div className="mt-5 border-t border-[#eee8dc] pt-5">
+
+                          <div className="text-xs font-bold uppercase tracking-[0.15em] text-[#7a847d]">
+                            Other documented meanings
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+
+                            {englishMeanings
+                              .filter(
+                                (meaning) =>
+                                  normalizeText(
+                                    meaning
+                                  ) !==
+                                  normalizeText(
+                                    entry.english
+                                  )
+                              )
+                              .map(
+                                (meaning) => (
+
+                                  <span
+                                    key={meaning}
+                                    className="rounded-full bg-[#f7f4ed] px-3 py-1.5 text-sm text-[#56635b]"
+                                  >
+                                    {meaning}
+                                  </span>
+
+                                )
+                              )}
+
+                          </div>
+
+                        </div>
+
+                      )}
+
+                      {/* OTHER KIEMBU EQUIVALENTS */}
+
+                      {kiembuEquivalents.length > 1 && (
+
+                        <div className="mt-5 border-t border-[#eee8dc] pt-5">
+
+                          <div className="text-xs font-bold uppercase tracking-[0.15em] text-[#7a847d]">
+                            Other Kiembu equivalents
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+
+                            {kiembuEquivalents
+                              .filter(
+                                (word) =>
+                                  normalizeText(
+                                    word
+                                  ) !==
+                                  normalizeText(
+                                    entry.kiembu
+                                  )
+                              )
+                              .map(
+                                (word) => (
+
+                                  <span
+                                    key={word}
+                                    className="rounded-full bg-[#f7f4ed] px-3 py-1.5 text-sm text-[#56635b]"
+                                  >
+                                    {word}
+                                  </span>
+
+                                )
+                              )}
+
+                          </div>
+
+                        </div>
+
+                      )}
+
+                    </article>
+
+                  );
+
+                }
+              )}
+
+            </div>
+
+          ) : (
+
+            /* =================================================
+               NO RESULTS
+            ================================================= */
+
             <div className="rounded-3xl border border-[#ded7c9] bg-white px-6 py-16 text-center">
-              <div className="text-5xl">⌕</div>
+
+              <div className="text-5xl">
+                ⌕
+              </div>
 
               <h2 className="mt-5 text-2xl font-bold text-[#173f2a]">
                 No dictionary entries found
               </h2>
 
               <p className="mx-auto mt-3 max-w-xl leading-7 text-[#68736b]">
-                Try another Kiembu or English search term, or clear the
-                filters and search again.
+                No documented Kiembu or English entry matched
+                your search. Try another word or clear the search
+                field and browse the complete lexical resource.
               </p>
+
+              <button
+                type="button"
+                onClick={clearSearch}
+                className="mt-6 rounded-full bg-[#173f2a] px-6 py-3 font-semibold text-white transition hover:bg-[#24563b]"
+              >
+                View All Entries
+              </button>
+
             </div>
+
           )}
+
         </div>
+
       </section>
 
-      {/* =========================================================
+      {/* =====================================================
           DATA NOTICE
-      ========================================================= */}
+      ===================================================== */}
+
       <section className="bg-white">
+
         <div className="mx-auto max-w-5xl px-6 py-16 text-center lg:py-20">
+
           <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#a25b28]">
             Research Data
           </p>
 
           <h2 className="mt-4 text-3xl font-bold text-[#173f2a]">
-            Building the validated Kiembu lexical resource
+            Documented Kiembu lexical resource
           </h2>
 
           <p className="mx-auto mt-5 max-w-3xl leading-8 text-[#5d685f]">
-            The project developed a validated lexical resource containing
-            documented Kiembu language entries. The public website will use
-            approved records from the project dataset rather than invented or
-            automatically generated translations.
+            This dictionary presents documented Kiembu-English
+            lexical entries supplied through the CIS-ETHN language
+            research resources. The website displays the records
+            contained in the project's local lexical dataset and
+            does not generate or invent translations.
           </p>
 
-          <div className="mt-8 inline-flex rounded-full bg-[#f7f4ed] px-6 py-3 text-sm font-semibold text-[#173f2a]">
-            Project lexical resource: 1,687 validated entries
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+
+            <div className="rounded-full bg-[#f7f4ed] px-6 py-3 text-sm font-semibold text-[#173f2a]">
+              {dictionaryEntries.length.toLocaleString()} dictionary records
+            </div>
+
+            <div className="rounded-full bg-[#f7f4ed] px-6 py-3 text-sm font-semibold text-[#173f2a]">
+              Kiembu ↔ English
+            </div>
+
           </div>
+
         </div>
+
       </section>
 
-      {/* =========================================================
+      {/* =====================================================
           NAVIGATION
-      ========================================================= */}
+      ===================================================== */}
+
       <section className="bg-[#173f2a]">
+
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-10 lg:px-10">
+
           <a
             href="/language"
             className="rounded-full bg-white px-6 py-3 font-semibold text-[#173f2a]"
@@ -265,12 +579,16 @@ export default function DictionaryPage() {
 
           <a
             href="/language/translator"
-            className="rounded-full border border-white/30 px-6 py-3 font-semibold text-white hover:bg-white/10"
+            className="rounded-full border border-white/30 px-6 py-3 font-semibold text-white transition hover:bg-white/10"
           >
             Kiembu Translator →
           </a>
+
         </div>
+
       </section>
+
     </main>
   );
 }
+

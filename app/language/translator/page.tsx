@@ -8,6 +8,7 @@ import {
   type KiembuDictionaryEntry,
   type KiembuCorpusEntry,
 } from "../../data/kiembuData";
+import { kiembuDocumentDictionary } from "../../data/kiembuDocumentDictionary";
 
 type SearchResult =
   | {
@@ -29,6 +30,61 @@ function normalizeText(text: string) {
 
 function normalizeWord(text: string) {
   return normalizeText(text);
+}
+
+/**
+ * Combine the main dictionary with the additional dictionary entries
+ * extracted from the Kiembu parallel corpus/document resources.
+ *
+ * Exact duplicate pairs are removed so the same translation is not
+ * displayed repeatedly.
+ */
+const allKiembuDictionary: KiembuDictionaryEntry[] = Array.from(
+  new Map(
+    [...kiembuDictionary, ...kiembuDocumentDictionary].map((entry) => [
+      `${normalizeWord(entry.english)}|||${normalizeWord(entry.kiembu)}`,
+      entry,
+    ])
+  ).values()
+);
+
+/**
+ * Find every dictionary entry matching the input.
+ *
+ * This is intentionally different from findDictionaryMatch():
+ * one English word can have several Kiembu equivalents, and one
+ * Kiembu word can have several English meanings.
+ */
+function findDictionaryMatches(
+  text: string,
+  sourceLanguage: string
+): KiembuDictionaryEntry[] {
+  const normalizedInput = normalizeWord(text);
+
+  if (!normalizedInput) {
+    return [];
+  }
+
+  return allKiembuDictionary.filter((entry) => {
+    if (sourceLanguage === "Kiembu") {
+      return normalizeWord(entry.kiembu) === normalizedInput;
+    }
+
+    return normalizeWord(entry.english) === normalizedInput;
+  });
+}
+
+/**
+ * Return unique translations while preserving their original order.
+ */
+function uniqueTranslations(values: string[]): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value.trim())
+        .filter(Boolean)
+    )
+  );
 }
 
 function findExactCorpusMatch(
@@ -56,21 +112,7 @@ function findDictionaryMatch(
   text: string,
   sourceLanguage: string
 ): KiembuDictionaryEntry | null {
-  const normalizedInput = normalizeWord(text);
-
-  if (!normalizedInput) {
-    return null;
-  }
-
-  const result = kiembuDictionary.find((entry) => {
-    if (sourceLanguage === "Kiembu") {
-      return normalizeWord(entry.kiembu) === normalizedInput;
-    }
-
-    return normalizeWord(entry.english) === normalizedInput;
-  });
-
-  return result ?? null;
+  return findDictionaryMatches(text, sourceLanguage)[0] ?? null;
 }
 
 function findPartialCorpusMatches(
@@ -106,6 +148,7 @@ function findWordTranslations(
 ): Array<{
   source: string;
   translation: string;
+  variants?: string[];
 }> {
   const words = normalizeText(text)
     .split(" ")
@@ -114,23 +157,30 @@ function findWordTranslations(
   const results: Array<{
     source: string;
     translation: string;
+    variants?: string[];
   }> = [];
 
   for (const word of words) {
-    const entry = findDictionaryMatch(word, sourceLanguage);
+    const entries = findDictionaryMatches(word, sourceLanguage);
 
-    if (!entry) {
+    if (entries.length === 0) {
       results.push({
         source: word,
         translation: "No dictionary match",
       });
-
       continue;
     }
 
+    const translations = uniqueTranslations(
+      entries.map((entry) =>
+        sourceLanguage === "Kiembu" ? entry.english : entry.kiembu
+      )
+    );
+
     results.push({
-      source: sourceLanguage === "Kiembu" ? entry.kiembu : entry.english,
-      translation: sourceLanguage === "Kiembu" ? entry.english : entry.kiembu,
+      source: word,
+      translation: translations.join(" / "),
+      variants: translations,
     });
   }
 
@@ -160,6 +210,7 @@ export default function TranslatorPage() {
     Array<{
       source: string;
       translation: string;
+      variants?: string[];
     }>
   >([]);
 
@@ -213,17 +264,18 @@ export default function TranslatorPage() {
      * ------------------------------------------------------------
      */
 
-    const dictionaryMatch = findDictionaryMatch(text, sourceLanguage);
+    const dictionaryMatches = findDictionaryMatches(text, sourceLanguage);
 
-    if (dictionaryMatch) {
-      setMatchedEntry(dictionaryMatch);
+    if (dictionaryMatches.length > 0) {
+      const translations = uniqueTranslations(
+        dictionaryMatches.map((entry) =>
+          sourceLanguage === "Kiembu" ? entry.english : entry.kiembu
+        )
+      );
+
+      setMatchedEntry(dictionaryMatches[0]);
       setResultType("dictionary");
-
-      if (sourceLanguage === "Kiembu") {
-        setTranslation(dictionaryMatch.english);
-      } else {
-        setTranslation(dictionaryMatch.kiembu);
-      }
+      setTranslation(translations.join(" / "));
 
       setIsSearching(false);
 
@@ -612,6 +664,11 @@ export default function TranslatorPage() {
 
                     <div className="text-[#68736b]">
                       {word.translation}
+                      {word.variants && word.variants.length > 1 && (
+                        <div className="mt-1 text-xs text-[#8b918c]">
+                          {word.variants.length} translation variants found
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -685,7 +742,7 @@ export default function TranslatorPage() {
           <div className="grid gap-5 md:grid-cols-2">
             <div className="rounded-3xl bg-[#173f2a] p-8 text-white">
               <div className="text-4xl font-bold">
-                {kiembuDictionary.length.toLocaleString()}
+                {allKiembuDictionary.length.toLocaleString()}
               </div>
 
               <div className="mt-3 text-[#d6e2d9]">

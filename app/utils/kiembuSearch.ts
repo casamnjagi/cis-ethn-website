@@ -2,11 +2,12 @@
 
 import { kiembuDictionary } from "../data/kiembuData";
 
+import { kiembuDocumentDictionary } from "../data/kiembuDocumentDictionary";
+
 import {
-  kiembuKnowledge,
-  kiembuCategoryNames,
-  type KiembuKnowledgeEntry,
-} from "../data/kiembuKnowledge";
+  kiembuKnowledgeAll,
+  type KiembuKnowledgeAllEntry,
+} from "../data/kiembuKnowledgeAll";
 
 // ============================================================
 // TYPES
@@ -19,91 +20,151 @@ export type KiembuAnswerResult = {
 };
 
 // ============================================================
-// NORMALIZE TEXT
+// NORMALIZE KIEMBU / ENGLISH
 // ============================================================
 
 function normalizeText(text: string): string {
   return text
     .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .normalize("NFC")
+    .replace(/ĩ/g, "i")
+    .replace(/ũ/g, "u")
+    .replace(/ī/g, "i")
+    .replace(/ū/g, "u")
     .replace(/[’‘`]/g, "'")
-    .replace(/[^\p{L}\p{N}\s']/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 // ============================================================
-// REMOVE QUESTION WORDS
-// ============================================================
-
-function removeQuestionWords(text: string): string {
-  return text
-    .replace(/\bwhat is\b/g, "")
-    .replace(/\bwhat are\b/g, "")
-    .replace(/\bwho is\b/g, "")
-    .replace(/\bwho are\b/g, "")
-    .replace(/\btell me about\b/g, "")
-    .replace(/\bexplain\b/g, "")
-    .replace(/\bdefine\b/g, "")
-    .replace(/\bmeaning of\b/g, "")
-    .replace(/\bmeaning\b/g, "")
-    .replace(/\bkiembu\b/g, "")
-    .replace(/\bplease\b/g, "")
-    .replace(/\bthe\b/g, "")
-    .replace(/\ba\b/g, "")
-    .replace(/\ban\b/g, "")
-    .replace(/\bin\b/g, "")
-    .replace(/\bof\b/g, "")
-    .replace(/\bis\b/g, "")
-    .replace(/\bare\b/g, "")
-    .replace(/\bdoes\b/g, "")
-    .replace(/\bdo\b/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-// ============================================================
-// GET WORDS
+// TOKENIZE
 // ============================================================
 
 function getWords(text: string): string[] {
   return normalizeText(text)
-    .split(" ")
-    .map((word) => word.trim())
-    .filter(Boolean);
+    .split(/[^a-z0-9']+/)
+    .filter((word) => word.length >= 2);
 }
 
 // ============================================================
-// FIND EXACT DICTIONARY MATCH
+// REMOVE COMMON QUESTION WORDS
+// ============================================================
+
+function removeQuestionWords(text: string): string {
+  const stopWords = new Set([
+    "what",
+    "what's",
+    "is",
+    "are",
+    "was",
+    "were",
+    "who",
+    "where",
+    "when",
+    "why",
+    "how",
+    "which",
+    "tell",
+    "me",
+    "about",
+    "explain",
+    "define",
+    "meaning",
+    "means",
+    "does",
+    "do",
+    "the",
+    "a",
+    "an",
+    "of",
+    "in",
+    "on",
+    "to",
+    "for",
+    "and",
+    "please",
+    "kiembu",
+    "kimbeere",
+    "embu",
+  ]);
+
+  return getWords(text)
+    .filter((word) => !stopWords.has(word))
+    .join(" ");
+}
+
+// ============================================================
+// COMBINED DICTIONARY
+// ============================================================
+
+const combinedDictionary = [
+  ...kiembuDictionary,
+  ...kiembuDocumentDictionary,
+];
+
+// ============================================================
+// DICTIONARY SEARCH
 // ============================================================
 
 function findDictionaryMatch(
   question: string
 ): { english: string; kiembu: string } | null {
   const normalizedQuestion = normalizeText(question);
-  const cleanedQuestion = removeQuestionWords(normalizedQuestion);
+  const cleanedQuestion = removeQuestionWords(question);
 
-  // Exact phrase match first
-  const exact = kiembuDictionary.find(
-    (entry) =>
-      normalizeText(entry.english) === cleanedQuestion ||
-      normalizeText(entry.kiembu) === cleanedQuestion
-  );
+  // ----------------------------------------------------------
+  // Exact English / Kiembu phrase
+  // ----------------------------------------------------------
+
+  const exact = combinedDictionary.find((entry) => {
+    const english = normalizeText(entry.english);
+    const kiembu = normalizeText(entry.kiembu);
+
+    return (
+      english === normalizedQuestion ||
+      kiembu === normalizedQuestion ||
+      english === cleanedQuestion ||
+      kiembu === cleanedQuestion
+    );
+  });
 
   if (exact) {
     return exact;
   }
 
-  // Look for a single meaningful word
+  // ----------------------------------------------------------
+  // Look for exact phrase inside question
+  // ----------------------------------------------------------
+
+  const phraseMatch = combinedDictionary.find((entry) => {
+    const english = normalizeText(entry.english);
+    const kiembu = normalizeText(entry.kiembu);
+
+    return (
+      (english.length > 2 &&
+        normalizedQuestion.includes(english)) ||
+      (kiembu.length > 2 &&
+        normalizedQuestion.includes(kiembu))
+    );
+  });
+
+  if (phraseMatch) {
+    return phraseMatch;
+  }
+
+  // ----------------------------------------------------------
+  // Single word match
+  // ----------------------------------------------------------
+
   const words = getWords(cleanedQuestion);
 
   for (const word of words) {
-    const match = kiembuDictionary.find(
-      (entry) =>
+    const match = combinedDictionary.find((entry) => {
+      return (
         normalizeText(entry.english) === word ||
         normalizeText(entry.kiembu) === word
-    );
+      );
+    });
 
     if (match) {
       return match;
@@ -119,54 +180,104 @@ function findDictionaryMatch(
 
 function scoreKnowledgeEntry(
   question: string,
-  entry: KiembuKnowledgeEntry
+  entry: KiembuKnowledgeAllEntry
 ): number {
   const normalizedQuestion = normalizeText(question);
-  const cleanedQuestion = removeQuestionWords(normalizedQuestion);
+  const cleanedQuestion = removeQuestionWords(question);
 
   const questionWords = getWords(cleanedQuestion);
 
+  if (questionWords.length === 0) {
+    return 0;
+  }
+
+  const title = normalizeText(entry.title);
+  const content = normalizeText(entry.content);
+
+  const keywords = entry.keywords.map(normalizeText);
+
   let score = 0;
 
-  // Title
-  const title = normalizeText(entry.title);
+  // ----------------------------------------------------------
+  // EXACT TITLE
+  // ----------------------------------------------------------
 
   if (title === cleanedQuestion) {
-    score += 100;
+    score += 150;
   }
 
-  if (title.includes(cleanedQuestion) && cleanedQuestion.length > 2) {
-    score += 60;
+  // ----------------------------------------------------------
+  // TITLE PHRASE
+  // ----------------------------------------------------------
+
+  if (
+    cleanedQuestion.length > 2 &&
+    title.includes(cleanedQuestion)
+  ) {
+    score += 90;
   }
 
-  // Keywords
-  for (const keyword of entry.keywords) {
-    const normalizedKeyword = normalizeText(keyword);
+  // ----------------------------------------------------------
+  // KEYWORDS
+  // ----------------------------------------------------------
 
-    if (normalizedQuestion.includes(normalizedKeyword)) {
-      score += 35;
+  for (const keyword of keywords) {
+    if (!keyword) {
+      continue;
     }
 
-    if (cleanedQuestion === normalizedKeyword) {
-      score += 80;
+    if (normalizedQuestion.includes(keyword)) {
+      score += 45;
+    }
+
+    if (cleanedQuestion === keyword) {
+      score += 100;
     }
 
     for (const word of questionWords) {
-      if (
-        word.length > 2 &&
-        normalizedKeyword.includes(word)
-      ) {
-        score += 10;
+      if (word.length < 3) {
+        continue;
+      }
+
+      if (keyword === word) {
+        score += 25;
+      } else if (keyword.includes(word)) {
+        score += 12;
       }
     }
   }
 
-  // Content
-  const content = normalizeText(entry.content);
+  // ----------------------------------------------------------
+  // CONTENT
+  // ----------------------------------------------------------
+
+  let contentMatches = 0;
 
   for (const word of questionWords) {
-    if (word.length > 2 && content.includes(word)) {
-      score += 2;
+    if (word.length < 3) {
+      continue;
+    }
+
+    if (content.includes(word)) {
+      contentMatches++;
+      score += 3;
+    }
+  }
+
+  // Reward entries matching several words
+  if (contentMatches >= 2) {
+    score += contentMatches * 4;
+  }
+
+  // ----------------------------------------------------------
+  // CATEGORY
+  // ----------------------------------------------------------
+
+  const category = normalizeText(entry.category);
+
+  for (const word of questionWords) {
+    if (category.includes(word)) {
+      score += 8;
     }
   }
 
@@ -174,25 +285,24 @@ function scoreKnowledgeEntry(
 }
 
 // ============================================================
-// FIND BEST KNOWLEDGE ENTRY
+// FIND BEST KNOWLEDGE ENTRIES
 // ============================================================
 
-function findBestKnowledgeEntry(
-  question: string
-): KiembuKnowledgeEntry | null {
-  const ranked = kiembuKnowledge
+function findBestKnowledgeEntries(
+  question: string,
+  limit = 3
+): Array<{
+  entry: KiembuKnowledgeAllEntry;
+  score: number;
+}> {
+  return kiembuKnowledgeAll
     .map((entry) => ({
       entry,
       score: scoreKnowledgeEntry(question, entry),
     }))
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  if (ranked.length === 0) {
-    return null;
-  }
-
-  return ranked[0].entry;
+    .filter((item) => item.score >= 10)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
 }
 
 // ============================================================
@@ -209,26 +319,105 @@ function isFoodQuestion(question: string): boolean {
     text.includes("vegetables") ||
     text.includes("eat") ||
     text.includes("cooking") ||
+    text.includes("cook") ||
     text.includes("meal") ||
-    text.includes("meals")
+    text.includes("meals") ||
+    text.includes("traditional dish") ||
+    text.includes("traditional dishes")
   );
 }
 
 // ============================================================
-// SPECIAL HOUSE DETECTION
+// SPECIAL LANGUAGE DETECTION
 // ============================================================
 
-function isHouseQuestion(question: string): boolean {
+function isLanguageQuestion(question: string): boolean {
   const text = normalizeText(question);
 
   return (
-    text === "house" ||
-    text === "home" ||
-    text.includes("traditional house") ||
-    text.includes("traditional home") ||
-    text.includes("kiembu house") ||
-    text.includes("embu house")
+    text.includes("word") ||
+    text.includes("translate") ||
+    text.includes("translation") ||
+    text.includes("meaning") ||
+    text.includes("say in kiembu") ||
+    text.includes("kiembu word") ||
+    text.includes("kimbeere word")
   );
+}
+
+// ============================================================
+// GET SOURCE SAFELY
+// ============================================================
+
+function getEntrySource(
+  entry: KiembuKnowledgeAllEntry
+): string {
+  if (
+    "source" in entry &&
+    typeof entry.source === "string" &&
+    entry.source.trim()
+  ) {
+    return entry.source;
+  }
+
+  return "CIS-ETHN Kiembu Cultural Knowledge Base";
+}
+
+// ============================================================
+// FORMAT KNOWLEDGE RESPONSE
+// ============================================================
+
+function formatKnowledgeResponse(
+  results: Array<{
+    entry: KiembuKnowledgeAllEntry;
+    score: number;
+  }>
+): KiembuAnswerResult {
+  if (results.length === 0) {
+    return {
+      answer:
+        "I could not find enough information in the CIS-ETHN Kiembu knowledge base to answer that question accurately. Try asking about a specific Kiembu word, tradition, ceremony, food, story, song, dance, place, livelihood, artefact, environmental practice or other cultural topic.",
+      source: "CIS-ETHN Kiembu Knowledge Base",
+    };
+  }
+
+  const best = results[0].entry;
+
+  // ----------------------------------------------------------
+  // VERY STRONG MATCH
+  // ----------------------------------------------------------
+
+  if (results[0].score >= 100) {
+    return {
+      answer: best.content,
+      source: getEntrySource(best),
+      category: best.category,
+    };
+  }
+
+  // ----------------------------------------------------------
+  // COMBINE CLOSELY RELATED RESULTS
+  // ----------------------------------------------------------
+
+  const selected = results
+    .filter((result, index) => {
+      if (index === 0) {
+        return true;
+      }
+
+      return result.score >= results[0].score * 0.55;
+    })
+    .slice(0, 3);
+
+  const answer = selected
+    .map((result) => result.entry.content)
+    .join("\n\n");
+
+  return {
+    answer,
+    source: getEntrySource(best),
+    category: best.category,
+  };
 }
 
 // ============================================================
@@ -240,103 +429,92 @@ export function answerKiembuQuestion(
 ): KiembuAnswerResult {
   const originalQuestion = question.trim();
 
+  // ==========================================================
+  // EMPTY QUESTION
+  // ==========================================================
+
   if (!originalQuestion) {
     return {
-      answer: "Please ask a question about Kiembu language or culture.",
+      answer:
+        "Please ask a question about Kiembu language or culture.",
     };
   }
 
-  // ----------------------------------------------------------
+  // ==========================================================
   // 1. DICTIONARY
-  // ----------------------------------------------------------
+  // ==========================================================
 
-  const dictionaryMatch = findDictionaryMatch(originalQuestion);
+  const dictionaryMatch =
+    findDictionaryMatch(originalQuestion);
 
   if (dictionaryMatch) {
     return {
       answer: `${dictionaryMatch.english} in Kiembu is **${dictionaryMatch.kiembu}**.`,
-      source: "Kiembu Dictionary",
+      source: "CIS-ETHN Kiembu Dictionary",
       category: "Language",
     };
   }
 
-  // ----------------------------------------------------------
-  // 2. FOOD
-  // ----------------------------------------------------------
+  // ==========================================================
+  // 2. KNOWLEDGE SEARCH
+  // ==========================================================
+
+  const results = findBestKnowledgeEntries(
+    originalQuestion,
+    5
+  );
+
+  // ==========================================================
+  // 3. FOOD QUESTIONS
+  // ==========================================================
 
   if (isFoodQuestion(originalQuestion)) {
-    const foodEntries = kiembuKnowledge.filter(
-      (entry) =>
-        entry.category === "foods_preparation_preservation"
+    const foodResults = results.filter((result) =>
+      normalizeText(result.entry.category).includes("food")
     );
 
-    if (foodEntries.length > 0) {
-      const answer = foodEntries
-        .slice(0, 2)
-        .map((entry) => entry.content)
-        .join("\n\n");
-
-      return {
-        answer,
-        source: "Kiembu Cultural Knowledge",
-        category: kiembuCategoryNames.foods_preparation_preservation,
-      };
+    if (foodResults.length > 0) {
+      return formatKnowledgeResponse(foodResults);
     }
   }
 
-  // ----------------------------------------------------------
-  // 3. HOUSE / HOME
-  // ----------------------------------------------------------
+  // ==========================================================
+  // 4. LANGUAGE QUESTIONS
+  // ==========================================================
 
-  if (isHouseQuestion(originalQuestion)) {
-    const houseEntry = kiembuKnowledge.find((entry) =>
-      entry.keywords.some((keyword) => {
-        const normalizedKeyword = normalizeText(keyword);
+  if (isLanguageQuestion(originalQuestion)) {
+    const languageResults = results.filter((result) => {
+      const category = normalizeText(
+        result.entry.category
+      );
 
-        return (
-          normalizedKeyword === "house" ||
-          normalizedKeyword === "home" ||
-          normalizedKeyword === "house construction"
-        );
-      })
-    );
+      return (
+        category.includes("language") ||
+        category.includes("oral") ||
+        category.includes("naming")
+      );
+    });
 
-    if (houseEntry) {
-      return {
-        answer: houseEntry.content,
-        source: "Kiembu Cultural Knowledge",
-        category: kiembuCategoryNames[houseEntry.category],
-      };
+    if (languageResults.length > 0) {
+      return formatKnowledgeResponse(languageResults);
     }
-
-    return {
-      answer:
-        "The current Kiembu cultural knowledge collection does not yet contain enough dedicated information about traditional Kiembu houses. More research data can be added to the knowledge base.",
-      source: "Kiembu Cultural Knowledge",
-      category: "Material Culture",
-    };
   }
 
-  // ----------------------------------------------------------
-  // 4. CULTURAL KNOWLEDGE
-  // ----------------------------------------------------------
+  // ==========================================================
+  // 5. GENERAL KNOWLEDGE
+  // ==========================================================
 
-  const bestEntry = findBestKnowledgeEntry(originalQuestion);
-
-  if (bestEntry) {
-    return {
-      answer: bestEntry.content,
-      source: "Kiembu Cultural Knowledge",
-      category: kiembuCategoryNames[bestEntry.category],
-    };
+  if (results.length > 0) {
+    return formatKnowledgeResponse(results);
   }
 
-  // ----------------------------------------------------------
-  // 5. NOT FOUND
-  // ----------------------------------------------------------
+  // ==========================================================
+  // 6. NOT FOUND
+  // ==========================================================
 
   return {
     answer:
-      "I could not find enough information in the current Kiembu cultural knowledge collection to answer that question accurately. Try using different words or ask about a specific Kiembu cultural topic.",
+      "I could not find enough information in the CIS-ETHN Kiembu knowledge base to answer that question accurately. Try asking about a specific Kiembu word, tradition, ceremony, food, story, song, dance, family practice, place, livelihood, artefact or environmental practice.",
+    source: "CIS-ETHN Kiembu Knowledge Base",
   };
 }
