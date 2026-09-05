@@ -22,10 +22,10 @@ const languageResources = [
   },
   {
     number: "04",
-    title: "Sentence Corpus",
+    title: "Kiembu Keyboard",
     description:
-      "Explore the project's Kiembu-English sentence resources developed for language documentation and future AI applications.",
-    href: "/language/sentences",
+      "Practice typing Kiembu using the kiembu Keyboard.",
+    href: "/language/KiembuKeyboard",
   },
 ];
 
